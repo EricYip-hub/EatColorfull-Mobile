@@ -1,0 +1,67 @@
+name: OG drift check
+
+# Runs on every PR to main and on pushes to main. The job fails (exit 2) when
+# public/og-image.jpg or tracked OG/Twitter meta tags in src/routes/__root.tsx
+# have drifted from the saved baseline or the live site. On PRs, a sticky
+# comment is posted with a pass/fail report + revalidation checklist.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "public/og-image.jpg"
+      - "src/routes/__root.tsx"
+      - "scripts/check-og-changes.ts"
+      - ".lovable/og-baseline.json"
+      - ".github/workflows/og-drift.yml"
+  push:
+    branches: [main]
+    paths:
+      - "public/og-image.jpg"
+      - "src/routes/__root.tsx"
+      - "scripts/check-og-changes.ts"
+      - ".lovable/og-baseline.json"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  og-drift:
+    name: Detect og-image / meta drift vs live site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Run check-og-changes
+        id: check
+        # Exit 2 = drift detected. Capture it so we can still post the report
+        # before failing the job.
+        run: |
+          set +e
+          bun scripts/check-og-changes.ts --report=og-drift-report.md
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      - name: Surface report in job summary
+        if: always()
+        run: |
+          if [ -f og-drift-report.md ]; then
+            cat og-drift-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Post / update PR comment
+        if: always() && github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: og-drift-report
+          path: og-drift-report.md
+
+      - name: Fail job on drift
+        if: always() && steps.check.outputs.exit_code != '0'
+        run: |
+          echo "Drift detected (exit ${{ steps.check.outputs.exit_code }}). See PR comment / job summary."
+          exit 1

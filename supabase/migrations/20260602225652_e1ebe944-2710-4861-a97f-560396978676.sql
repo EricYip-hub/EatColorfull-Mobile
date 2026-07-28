@@ -1,0 +1,2 @@
+REVOKE EXECUTE ON FUNCTION public.finalize_chef_order_paid(uuid, text, text, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.finalize_chef_order_paid(uuid, text, text, text) FROM anon, authenticated;

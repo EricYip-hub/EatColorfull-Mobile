@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.confirm_manual_chef_payment(uuid, text) FROM PUBLIC, anon;

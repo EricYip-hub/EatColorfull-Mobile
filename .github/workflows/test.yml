@@ -1,0 +1,102 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e:
+    name: Playwright E2E (including axe accessibility)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: bunx playwright install chromium
+
+      - name: Build app
+        run: bun run build
+
+      - name: Run Playwright E2E tests
+        run: bunx playwright test
+
+  smoke:
+    name: Smoke test key pages (local preview)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: bunx playwright install chromium
+      - name: Build app
+        run: bun run build
+      - name: Run smoke tests
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: bunx playwright test e2e/smoke-key-pages.spec.ts e2e/smoke-auth.spec.ts e2e/smoke-logout-redirect.spec.ts e2e/smoke-password-reset.spec.ts --reporter=list
+
+  a11y-guard:
+    name: A11y Guard (WCAG A/AA - blocks merge on violations)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: bunx playwright install chromium
+
+      - name: Build app
+        run: bun run build
+
+      - name: Run axe WCAG A/AA scans (fails build on any violation)
+        run: bunx playwright test e2e/undo-popover-axe-fullpage.spec.ts e2e/undo-popover-axe-a11y.spec.ts e2e/moshe-fhima-a11y.spec.ts e2e/chef-cards-a11y.spec.ts --reporter=list
+
+      - name: Upload axe scan reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: axe-accessibility-reports
+          path: test-results/axe/
+          retention-days: 30
+
+      - name: Accessibility violations detected
+        if: failure()
+        run: |
+          echo "::error::WCAG 2.0/2.1 A/AA accessibility violations were introduced by this PR."
+          echo "::error::This PR is blocked from merging until all violations are resolved."
+          echo "::error::Download the 'axe-accessibility-reports' artifact above for full HTML/JSON details."
+          exit 1
+
+  realtime-rls:
+    name: Realtime notification RLS integration test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Run realtime notification integration tests
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: bunx vitest run src/__tests__/realtime-notifications-rls.test.ts src/__tests__/notifications-delivery-status.test.ts src/__tests__/notifications-invalid-updates.test.ts src/__tests__/notifications-insert-rls.test.ts

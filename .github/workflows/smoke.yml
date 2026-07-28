@@ -1,0 +1,53 @@
+name: Post-Deploy Smoke
+
+on:
+  # Run after a push to main (deploys happen on main).
+  push:
+    branches: [main]
+  # Allow manual runs against either environment.
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Base URL to smoke-test"
+        required: false
+        default: "https://colored-table-alchemy.lovable.app"
+  # Daily safety net.
+  schedule:
+    - cron: "0 12 * * *"
+
+jobs:
+  smoke:
+    name: Smoke test live site
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        base_url:
+          - https://colored-table-alchemy.lovable.app
+          - https://www.eatcolorfull.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: bunx playwright install chromium
+
+      - name: Smoke test ${{ matrix.base_url }}
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url || matrix.base_url }}
+          # Don't spin up the local preview server — we hit the live URL.
+          PW_NO_WEBSERVER: "1"
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: bunx playwright test e2e/smoke-key-pages.spec.ts e2e/smoke-auth.spec.ts e2e/smoke-logout-redirect.spec.ts e2e/smoke-password-reset.spec.ts --reporter=list
+
+      - name: Smoke failures detected
+        if: failure()
+        run: |
+          echo "::error::Smoke tests failed against ${{ matrix.base_url }} — a key page or the auth flow is broken."
+          exit 1
